@@ -1,4 +1,5 @@
 # row-accumulate
+(See http://www.therealvan.com/rowaccumulator.html for write-up page.)
 
 Accumulator class to help partition and deserialize an ordered data stream (e.g. CSV lines, JDBC ResultSets) into
 data beans, supporting chaining to build up collections of subpartitions.
