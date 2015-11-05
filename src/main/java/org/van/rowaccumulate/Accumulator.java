@@ -2,6 +2,7 @@ package org.van.rowaccumulate;
 
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -78,6 +79,35 @@ public class Accumulator<P,T,R,K> {
     }
 
     /**
+     * Create an instance of the accumulator with the various operational closures. Since this variant doesn't
+     * accept an emitter, the only way the caller will be able to access any accumulated value is to subclass
+     * and override {@link #transition(Optional, Object)}, so this ctor will be protected.
+     *
+     * @param rowKeyExtractor closure to compute a key from a row
+     * @param accumulatedRowExtractor closure to access the current key from an instance of T
+     * @param accumulateMapper maps a row into an instance of T
+     */
+    protected Accumulator(
+        Function<R,K> rowKeyExtractor, Function<T,K> accumulatedRowExtractor,
+        Function<R,T> accumulateMapper) {
+        this(rowKeyExtractor, accumulatedRowExtractor, accumulateMapper, null);
+    }
+
+    /**
+     * Sets the emitter closure for emitting any new accumulated values. NOTE that the new accumulated value/entity
+     * MAY NOT be fully completed yet because subsequent rows have yet to be processed. Only when processing a
+     * new entity (or end of data is reached) will the current entity be completely built.
+     *
+     * @param emitter a closure to accept a new accumulated value/entity
+     *
+     * @return this instance
+     */
+    public Accumulator<P,T,R,K> withEmitter(Consumer<T> emitter) {
+        this.emitter = emitter;
+        return this;
+    }
+
+    /**
      * Chain the provided accumulator to this accumulator. As this accumulator works with rows
      * of data, it calls the chained accumulators at the appropriate times to allow the chained
      * accumulators to handle subsets of data.
@@ -110,7 +140,7 @@ public class Accumulator<P,T,R,K> {
     protected void accumulate(Optional<P> parentAccumulated, Optional<R> row) {
         if (row.isPresent()) {
             if ( (null == accumulated) ||
-                 !rowKeyExtractor.apply(row.get()).equals(accumulatedKeyExtractor.apply(accumulated))) {
+                 !Objects.equals(rowKeyExtractor.apply(row.get()), accumulatedKeyExtractor.apply(accumulated)) ) {
                 // A new value should now be accumulated. A new (or first) accumulated value should be
                 // created for this row
                 transition(parentAccumulated, row.get());
@@ -141,7 +171,9 @@ public class Accumulator<P,T,R,K> {
             for (Accumulator c: chained) {
                 c.transition(toBeEmitted, row);
             }
-            emitter.accept(toBeEmitted.get());
+            if (null != emitter){
+                emitter.accept(toBeEmitted.get());
+            }
         }
         return toBeEmitted;
     }

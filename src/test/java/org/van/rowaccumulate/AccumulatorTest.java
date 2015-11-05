@@ -55,8 +55,7 @@ public class AccumulatorTest {
                 Dish dish = new Dish();
                 dish.name = map.get("dish");
                 return dish;
-            },
-            i -> {}                                                // No-op emitter
+            }
         ) {
             @Override
             protected Optional<Dish> transition(Optional<Person> person, Map<String,String> row) {
