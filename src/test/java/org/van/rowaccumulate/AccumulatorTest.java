@@ -1,5 +1,6 @@
 package org.van.rowaccumulate;
 
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.van.rowaccumulate.example.*;
@@ -17,6 +18,7 @@ import java.util.*;
 public class AccumulatorTest {
 
     private List<Person> people = new LinkedList<>();
+    private List<Person> peopleUsingPrevAcc = new LinkedList<>();
 
     @Before
     public void setUp() {
@@ -25,12 +27,15 @@ public class AccumulatorTest {
 
     @Test
     public void testMappedData() {
-        Accumulator personAcc = new Accumulator<>(
+        Accumulator<Void,Person,Map<String, String>,Long> personAcc = new Accumulator<>(
             (Map<String, String> map) -> new Long(map.get("id")),  // rows should have an "id" property
             Person::getId,                                         // mapped to Person's id attribute
             Person::fromMap,                                       // Person has a helper we can use
             people::add                                            // add to the list of people above
         );
+        // Test the optional prev emitter as well. The two lists built using the normal emitter and the prev
+        // emitter should yield the same value.
+        personAcc.withPrevEmitter(peopleUsingPrevAcc::add);
 
         // This example uses an explicit derivative of the Accumulator class in cases where we may want to maintain
         // additional states in an Accumulator instance.
@@ -118,7 +123,13 @@ public class AccumulatorTest {
         row.put("dish", "Steak");
         personAcc.accumulate(row);          // 101, Bob, Portly, Steak, Driver's License, C1234567
 
+        // Signifies end of data (also necessary for the prev emitter to spit out the last value
+        personAcc.accumulate(null);
+
+        personAcc.accumulate(null);         // Subsequent calls should be no-ops
+
         System.out.println("people list: " + people.toString());
+        System.out.println("peopleUsingPrevAcc list: " + peopleUsingPrevAcc.toString());
         // Output (formatted):
 
         // people list: [
@@ -129,8 +140,9 @@ public class AccumulatorTest {
         //     Identities: [ {Driver's License:C1234567} ];
         //     Dishes: [ {name:Fish} {name:Spinach} {name:Steak} ]}
         // ]
-
-
+        Assert.assertEquals("[{100:Slim, Joe; Identities: [ {Driver's License:B1234567} {SSN:123-45-678} ]; Dishes: [ {name:Chicken} ]}, {101:Portly, Bob; Identities: [ {Driver's License:C1234567} ]; Dishes: [ {name:Fish} {name:Spinach} {name:Steak} ]}]",
+            people.toString());
+        Assert.assertEquals(people, peopleUsingPrevAcc);
 
     }
 }

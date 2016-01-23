@@ -47,9 +47,11 @@ public class Accumulator<P,T,R,K> {
     Function<T,K> accumulatedKeyExtractor;
     Function<R,T> accumulateMapper;
     Consumer<T> emitter;
+    Optional<Consumer<T>> prevEmitter;
 
     // accumulation entity
     T accumulated;
+    Optional<T> prev;
 
     List<Accumulator> chained;
 
@@ -70,6 +72,8 @@ public class Accumulator<P,T,R,K> {
         Function<R,T> accumulateMapper,
         Consumer<T> emitter) {
         accumulated = null;
+        prev = Optional.empty();
+        prevEmitter = Optional.empty();
 
         this.rowKeyExtractor = rowKeyExtractor;
         this.accumulatedKeyExtractor = accumulatedRowExtractor;
@@ -97,6 +101,8 @@ public class Accumulator<P,T,R,K> {
      * Sets the emitter closure for emitting any new accumulated values. NOTE that the new accumulated value/entity
      * MAY NOT be fully completed yet because subsequent rows have yet to be processed. Only when processing a
      * new entity (or end of data is reached) will the current entity be completely built.
+     * <br/>
+     * If you want to accept only fully-built values, consider using {@link #withPrevEmitter(Consumer)}
      *
      * @param emitter a closure to accept a new accumulated value/entity
      *
@@ -104,6 +110,19 @@ public class Accumulator<P,T,R,K> {
      */
     public Accumulator<P,T,R,K> withEmitter(Consumer<T> emitter) {
         this.emitter = emitter;
+        return this;
+    }
+
+    /**
+     * Sets the emitter closure for emitting the previously accumulated value each time a new value is detected. The
+     * value emitted here should represent a completely accumulated value.
+     *
+     * @param prevEmitter a closure to accept a fully accumulated value/entity
+     *
+     * @return this instance
+     */
+    public Accumulator<P,T,R,K> withPrevEmitter(Consumer<T> prevEmitter) {
+        this.prevEmitter = Optional.ofNullable(prevEmitter);
         return this;
     }
 
@@ -137,6 +156,7 @@ public class Accumulator<P,T,R,K> {
      *                          (used for chaining)
      * @param row the row of data or empty if this is the end of data.
      */
+    @SuppressWarnings("unchecked")
     protected void accumulate(Optional<P> parentAccumulated, Optional<R> row) {
         if (row.isPresent()) {
             if ( (null == accumulated) ||
@@ -149,6 +169,12 @@ public class Accumulator<P,T,R,K> {
                     a.accumulate(Optional.of(accumulated), row);
                 }
             }
+        } else {
+            // Since this can signify the end of the data, emit the previous accumulated value as the last value
+            if (prevEmitter.isPresent() && prev.isPresent()) {
+                prevEmitter.get().accept(prev.get());
+                // Wipe out the prev value now that we've emitted it so we don't emit it again for each null row
+                prev = Optional.empty();                }
         }
     }
 
@@ -164,17 +190,24 @@ public class Accumulator<P,T,R,K> {
      *
      * @return the emitted instance of T if available
      */
+    @SuppressWarnings("unchecked")
     protected Optional<T> transition(Optional<P> parentAccumulated, R row) {
         accumulated = accumulateMapper.apply(row);
         Optional<T> toBeEmitted = Optional.ofNullable(accumulated);
+        // emit the previously accumulated value first
+        if (prevEmitter.isPresent() && prev.isPresent()) {
+            prevEmitter.get().accept(prev.get());
+        }
+        // Now emit the new value
         if (toBeEmitted.isPresent()) {
             for (Accumulator c: chained) {
                 c.transition(toBeEmitted, row);
             }
-            if (null != emitter){
+            if (null != emitter) {
                 emitter.accept(toBeEmitted.get());
             }
         }
+        prev = toBeEmitted;
         return toBeEmitted;
     }
 
