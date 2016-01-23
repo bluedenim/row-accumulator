@@ -63,7 +63,7 @@ public class AccumulatorTest {
             }
         ) {
             @Override
-            protected Optional<Dish> transition(Optional<Person> person, Map<String,String> row) {
+            protected Optional<Dish> transition(Optional<Person> person, Optional<Map<String,String>> row) {
                 // My dilemna is whether to make this simply another closure to pass into the Accumulator. We already
                 // pass 4. What's another one? Then we won't need to subclass Accumulator anymore.
                 // However, maybe there will be cases when we do need to maintain some additional state in an
