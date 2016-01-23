@@ -71,6 +71,9 @@ public class Accumulator<P,T,R,K> {
         Function<R,K> rowKeyExtractor, Function<T,K> accumulatedRowExtractor,
         Function<R,T> accumulateMapper,
         Consumer<T> emitter) {
+        Objects.requireNonNull(rowKeyExtractor, "Need a closure to extract key from a row of input data");
+        Objects.requireNonNull(accumulatedRowExtractor, "Need a closure to extract key from accumulated type");
+        Objects.requireNonNull(accumulateMapper, "Need a closure to map a row to an accumulated value");
         accumulated = Optional.empty();
         prev = Optional.empty();
         prevEmitter = Optional.empty();
@@ -136,6 +139,7 @@ public class Accumulator<P,T,R,K> {
      * @return this instance
      */
     public Accumulator withChained(Accumulator a) {
+        Objects.requireNonNull(a, "Cannot chain a null accumulator!");
         chained.add(a);
         return this;
     }
