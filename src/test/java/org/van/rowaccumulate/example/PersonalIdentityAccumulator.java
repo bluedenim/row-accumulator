@@ -25,7 +25,7 @@ public class PersonalIdentityAccumulator<R,K> extends Accumulator<Person,Identit
     }
 
     @Override
-    protected Optional<Identity> transition(Optional<Person> person, R row) {
+    protected Optional<Identity> transition(Optional<Person> person, Optional<R> row) {
         Optional<Identity> identity = super.transition(person, row);
         if (person.isPresent() && identity.isPresent()) {
             person.get().identityList.add(identity.get());

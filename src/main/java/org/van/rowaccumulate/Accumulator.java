@@ -46,11 +46,11 @@ public class Accumulator<P,T,R,K> {
     Function<R,K> rowKeyExtractor;
     Function<T,K> accumulatedKeyExtractor;
     Function<R,T> accumulateMapper;
-    Consumer<T> emitter;
+    Optional<Consumer<T>> emitter;
     Optional<Consumer<T>> prevEmitter;
 
     // accumulation entity
-    T accumulated;
+    Optional<T> accumulated;
     Optional<T> prev;
 
     List<Accumulator> chained;
@@ -71,21 +71,24 @@ public class Accumulator<P,T,R,K> {
         Function<R,K> rowKeyExtractor, Function<T,K> accumulatedRowExtractor,
         Function<R,T> accumulateMapper,
         Consumer<T> emitter) {
-        accumulated = null;
+        Objects.requireNonNull(rowKeyExtractor, "Need a closure to extract key from a row of input data");
+        Objects.requireNonNull(accumulatedRowExtractor, "Need a closure to extract key from accumulated type");
+        Objects.requireNonNull(accumulateMapper, "Need a closure to map a row to an accumulated value");
+        accumulated = Optional.empty();
         prev = Optional.empty();
         prevEmitter = Optional.empty();
 
         this.rowKeyExtractor = rowKeyExtractor;
         this.accumulatedKeyExtractor = accumulatedRowExtractor;
         this.accumulateMapper = accumulateMapper;
-        this.emitter = emitter;
+        this.emitter = Optional.ofNullable(emitter);
         this.chained = new LinkedList<>();
     }
 
     /**
      * Create an instance of the accumulator with the various operational closures. Since this variant doesn't
      * accept an emitter, the only way the caller will be able to access any accumulated value is to subclass
-     * and override {@link #transition(Optional, Object)}, so this ctor will be protected.
+     * and override {@link #transition(Optional, Optional)}, so this ctor will be protected.
      *
      * @param rowKeyExtractor closure to compute a key from a row
      * @param accumulatedRowExtractor closure to access the current key from an instance of T
@@ -109,7 +112,7 @@ public class Accumulator<P,T,R,K> {
      * @return this instance
      */
     public Accumulator<P,T,R,K> withEmitter(Consumer<T> emitter) {
-        this.emitter = emitter;
+        this.emitter = Optional.ofNullable(emitter);
         return this;
     }
 
@@ -136,6 +139,7 @@ public class Accumulator<P,T,R,K> {
      * @return this instance
      */
     public Accumulator withChained(Accumulator a) {
+        Objects.requireNonNull(a, "Cannot chain a null accumulator!");
         chained.add(a);
         return this;
     }
@@ -158,60 +162,53 @@ public class Accumulator<P,T,R,K> {
      */
     @SuppressWarnings("unchecked")
     protected void accumulate(Optional<P> parentAccumulated, Optional<R> row) {
-        if (row.isPresent()) {
-            if ( (null == accumulated) ||
-                 !Objects.equals(rowKeyExtractor.apply(row.get()), accumulatedKeyExtractor.apply(accumulated)) ) {
-                // A new value should now be accumulated. A new (or first) accumulated value should be
-                // created for this row
-                transition(parentAccumulated, row.get());
-            } else {
-                for (Accumulator a: chained) {
-                    a.accumulate(Optional.of(accumulated), row);
-                }
-            }
+        // If this is the first row, or an Optional.empty (last row and beyond), or if
+        // our accumulated value's key is different than this row's key, then it's a transition to a new
+        // value
+        if ( !accumulated.isPresent() ||
+             !row.isPresent() ||
+             !Objects.equals(rowKeyExtractor.apply(row.get()), accumulatedKeyExtractor.apply(accumulated.get())) ) {
+            // A new value should now be accumulated. A new (or first) accumulated value should be
+            // created for this row
+            transition(parentAccumulated, row);
         } else {
+            // Otherwise, this is still the same logical value, so just call the chained accumulators
+            // with our accumulated value as the parent value
             for (Accumulator a: chained) {
-                a.accumulate(Optional.of(accumulated), row);
+                a.accumulate(accumulated, row);
             }
-            // Since this can signify the end of the data, emit the previous accumulated value as the last value
-            if (prevEmitter.isPresent() && prev.isPresent()) {
-                prevEmitter.get().accept(prev.get());
-                // Wipe out the prev value now that we've emitted it so we don't emit it again for each null row
-                prev = Optional.empty();                }
         }
     }
 
     /**
-     * Emit whatever accumulated entity so far and start a new entity based on the row of
-     * data provided. Chaining accumulators typically will aggregate their accumulated entity
+     * Emit the previous accumulated value, then map and emit the newly (if partially) accumulated entity
+     * Chained accumulators typically will override this and aggregate their accumulated value
      * into the parent accumulated entity.
      *
      * @param parentAccumulated when chaining, this is the parent's accumulated value
      *                          if available.
-     * @param row the data to create a new entity for, can be null when the row signifies
+     * @param row the data to create a new entity for, can be empty when the row signifies
      *            the end of the data stream.
      *
      * @return the emitted instance of T if available
      */
     @SuppressWarnings("unchecked")
-    protected Optional<T> transition(Optional<P> parentAccumulated, R row) {
-        accumulated = accumulateMapper.apply(row);
-        Optional<T> toBeEmitted = Optional.ofNullable(accumulated);
-        // emit the previously accumulated value first
+    protected Optional<T> transition(Optional<P> parentAccumulated, Optional<R> row) {
+        // Emit the previously accumulated value first
         if (prevEmitter.isPresent() && prev.isPresent()) {
             prevEmitter.get().accept(prev.get());
         }
-        // Now emit the new value
-        if (toBeEmitted.isPresent()) {
-            for (Accumulator c: chained) {
-                c.transition(toBeEmitted, row);
-            }
-            if (null != emitter) {
-                emitter.accept(toBeEmitted.get());
-            }
+        // Map the row to a new value. This is the newly accumulated value. NOTE that
+        // the accumulated value may be null if the row is empty (end of data)
+        accumulated = row.isPresent() ? Optional.ofNullable(accumulateMapper.apply(row.get())) : Optional.empty();
+        for (Accumulator c : chained) {
+            c.transition(accumulated, row);
         }
-        prev = toBeEmitted;
-        return toBeEmitted;
+        if (emitter.isPresent() && accumulated.isPresent()) {
+            emitter.get().accept(accumulated.get());
+        }
+        prev = accumulated;
+        return accumulated;
     }
 
 }
