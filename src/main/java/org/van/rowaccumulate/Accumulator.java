@@ -170,6 +170,9 @@ public class Accumulator<P,T,R,K> {
                 }
             }
         } else {
+            for (Accumulator a: chained) {
+                a.accumulate(Optional.of(accumulated), row);
+            }
             // Since this can signify the end of the data, emit the previous accumulated value as the last value
             if (prevEmitter.isPresent() && prev.isPresent()) {
                 prevEmitter.get().accept(prev.get());
